@@ -1,0 +1,54 @@
+# 海康安检机桥接服务配置
+# 修改后重启服务生效
+
+bridge:
+  http:
+    # 业务应用接收接口(已存在)
+    target-url: http://127.0.0.1:8080/file/api/receive-file
+    # HTTP 超时(毫秒),单张图片较大时适当调大
+    timeout-ms: 5000
+    # 发送失败后快速重试次数(超过后转入慢重试,间隔 retry-backoff-ms)
+    retry-times: 3
+    # 快速重试间隔(毫秒)
+    retry-interval-ms: 1000
+    # 慢重试间隔(毫秒),应用长时间宕机时按此节奏自动恢复补发
+    retry-backoff-ms: 60000
+    # 发送线程数
+    send-threads: 2
+    # 内存队列容量(超出丢弃并计数,极端情况保护)
+    queue-capacity: 10000
+    # 待发队列落盘目录(spool)
+    spool-dir: ./spool
+    # 图片留存目录(按设备/日期分目录,保留 retention-days 天)
+    image-dir: ./images
+    retention-days: 30
+
+  devices:
+    - id: xray-01
+      line-id: "1"
+      name: "一号安检机"
+      ip: 199.199.199.15
+      port: 8000
+      username: admin
+      password: "在此填写密码"
+      enabled: true
+    - id: xray-02
+      line-id: "2"
+      name: "二号安检机"
+      ip: 199.199.199.25
+      port: 8000
+      username: admin
+      password: "在此填写密码"
+      enabled: true
+
+# 管理端口
+server:
+  port: 9090
+
+logging:
+  file:
+    name: ./logs/bridge.log
+  logback:
+    rollingpolicy:
+      max-file-size: 10MB
+      max-history: 30

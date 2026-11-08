@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  日志配置:
+  - 复用 Spring Boot 默认控制台配置(CONSOLE appender、日志格式)
+  - 文件日志独立 appender:当天日志写 logs/bridge.log
+  - 按天滚动:logs/bridge.yyyy-MM-dd.N.log,同一天内单文件超过 50MB 时序号递增
+  - 防无限增长:30 天自动清理 + 2GB 总量上限兜底
+  路径均相对启动工作目录(即部署根目录)
+-->
+<configuration>
+    <!-- 复用 Spring Boot 默认日志配置(控制台 appender、pattern 属性) -->
+    <include resource="org/springframework/boot/logging/logback/base.xml"/>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>logs/bridge.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 按天 + 大小滚动,防止文件无限增长 -->
+            <fileNamePattern>logs/bridge.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${FILE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>

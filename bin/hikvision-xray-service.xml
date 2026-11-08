@@ -1,0 +1,23 @@
+<!-- WinSW 服务定义:部署时将本文件与 WinSW-x64.exe 放在 bin 目录,执行 install-service.bat -->
+<service>
+  <id>hikvision-xray</id>
+  <name>海康安检机桥接服务</name>
+  <description>接收海康安检机智能判图报警并转发至业务系统</description>
+
+  <!-- 如服务器未配置 JAVA_HOME/PATH,改为 java.exe 绝对路径 -->
+  <executable>java</executable>
+  <!-- Spring Boot 自动加载工作目录下 config/application.yml -->
+  <arguments>-jar hikvision-xray.jar</arguments>
+
+  <!-- 工作目录 = 安装根目录(与 jar、config、lib、spool、images 同级) -->
+  <workingdirectory>C:\hikvision-bridge</workingdirectory>
+
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+
+  <!-- 崩溃自动重启:10 秒后拉起,1 小时内不再崩溃则重置计数 -->
+  <onfailure action="restart" delay="10 sec"/>
+  <resetfailure>1 hour</resetfailure>
+</service>
