@@ -6,6 +6,7 @@ import com.kylin.hikvisionxray.monitor.Stats;
 import com.kylin.hikvisionxray.queue.ImageStore;
 import com.kylin.hikvisionxray.queue.SendUnit;
 import com.kylin.hikvisionxray.queue.SpoolStore;
+import com.kylin.hikvisionxray.transform.OutboundTransformer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
@@ -34,6 +35,7 @@ public class AlarmPipeline implements SmartLifecycle {
     private final SpoolStore spoolStore;
     private final ImageStore imageStore;
     private final HttpSender httpSender;
+    private final OutboundTransformer outboundTransformer;
     private final Stats stats;
 
     private final LinkedBlockingQueue<AlarmEvent> inboundQueue;
@@ -44,11 +46,12 @@ public class AlarmPipeline implements SmartLifecycle {
     private Thread[] outboundThreads;
 
     public AlarmPipeline(BridgeProperties properties, SpoolStore spoolStore, ImageStore imageStore,
-                         HttpSender httpSender, Stats stats) {
+                         HttpSender httpSender, OutboundTransformer outboundTransformer, Stats stats) {
         this.httpProps = properties.getHttp();
         this.spoolStore = spoolStore;
         this.imageStore = imageStore;
         this.httpSender = httpSender;
+        this.outboundTransformer = outboundTransformer;
         this.stats = stats;
         this.inboundQueue = new LinkedBlockingQueue<>(httpProps.getQueueCapacity());
         this.outboundQueue = new LinkedBlockingQueue<>(httpProps.getQueueCapacity());
@@ -115,56 +118,38 @@ public class AlarmPipeline implements SmartLifecycle {
         log.info("入站线程退出");
     }
 
-    /** 拆分报警为单图发送单元:spool 落盘(必须先于入队)→ 留存 → 投递发送队列。 */
+    /**
+     * 报警处理:业务改造(OutboundTransformer)→ 单图发送单元:spool 落盘(必须先于入队)→ 留存 → 投递发送队列。
+     */
     private void process(AlarmEvent event) {
         stats.alarmReceived(event.getPictures().size());
         log.info("收到报警 deviceId={} ip={} 图片={} 张 jsonLen={}",
                 event.getDeviceId(), event.getDeviceIp(), event.getPictures().size(), event.getAlarmJson().length);
 
-        for (int i = 0; i < event.getPictures().size(); i++) {
-            AlarmEvent.Picture pic = event.getPictures().get(i);
-            String uploadName = buildUploadName(event, i, pic.getFilename());
-
-            SendUnit unit = SendUnit.create(
-                    event.getDeviceId(), event.getLineId(), event.getDeviceName(), event.getDeviceIp(),
-                    event.getReceivedAt(), uploadName, pic.getData());
-
-            // 1. spool 落盘(发送前必须先落盘,失败则丢弃该单元并计数,不允许不落盘就发送)
+        // 1. 业务改造:由 OutboundTransformer 决定发什么(默认每图一单元;业务 @Primary 实现可处理 JSON/图片、挑图、附带业务字段)
+        List<SendUnit> units = outboundTransformer.transform(event);
+        if (units == null) {
+            units = List.of();
+        }
+        for (SendUnit unit : units) {
+            // 2. spool 落盘(发送前必须先落盘,失败则丢弃该单元并计数,不允许不落盘就发送)
             try {
                 spoolStore.save(unit);
             } catch (Exception e) {
                 stats.spoolSaveFail();
-                log.error("spool 落盘失败,丢弃单元 deviceId={} filename={}", event.getDeviceId(), uploadName, e);
+                log.error("spool 落盘失败,丢弃单元 deviceId={} filename={}", event.getDeviceId(), unit.getImageFilename(), e);
                 continue;
             }
 
-            // 2. 入发送队列
+            // 3. 入发送队列
             if (!outboundQueue.offer(unit)) {
                 log.error("发送队列已满,单元保留在 spool 待重启恢复 unitId={}", unit.getUnitId());
                 continue;
             }
         }
 
-        // 3. 留存(不阻塞发送链路,失败仅记日志)
+        // 4. 留存(不阻塞发送链路,失败仅记日志):原始图片与原始 JSON 全量留存,不受业务改造影响
         imageStore.save(event);
-    }
-
-    /**
-     * 上传文件名,参照截图机约定:captured_{毫秒时间戳}.{扩展名}
-     * 单图 = captured_{millis}.jpg;一次报警多图时追加 _2、_3... 保证唯一(接口按 filename 去重)。
-     */
-    private String buildUploadName(AlarmEvent event, int index, String original) {
-        long millis = event.getReceivedAt().atZone(java.time.ZoneId.systemDefault())
-                .toInstant().toEpochMilli();
-        String ext = ".jpg";
-        if (original != null) {
-            int dot = original.lastIndexOf('.');
-            if (dot >= 0 && dot < original.length() - 1) {
-                ext = original.substring(dot).toLowerCase();
-            }
-        }
-        String suffix = index == 0 ? "" : "_" + (index + 1);
-        return "captured_" + millis + suffix + ext;
     }
 
     private void outboundLoop() {

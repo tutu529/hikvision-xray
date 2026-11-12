@@ -32,9 +32,10 @@ config/application.yml
  ├─ SDK 全局回调 (V31, 唯一)
  │    └─ 按 alarmer.lUserID 路由到设备 → 拷贝数据入队 → 立即返回(绝不阻塞)
  ├─ InboundWorker: 解析 COMM_ISAPI_ALARM(JSON + 多图)
- │    ├─ 图片留存落盘 images/{deviceId}/{yyyyMMdd}/
+ │    ├─ OutboundTransformer 业务改造:报警 → SendUnit 列表(业务 @Primary 实现覆盖默认拆分)
+ │    ├─ 图片留存落盘 images/{deviceId}/{yyyyMMdd}/(原始图片与原始 JSON 全量留存,不受改造影响)
  │    ├─ JSON 一并留存(同目录 .json 文件,审计用)
- │    └─ 拆分为单图 SendUnit → spool 落盘 → 投递发送队列
+ │    └─ SendUnit → spool 落盘 → 投递发送队列
  ├─ OutboundWorker(线程池): POST multipart → 成功删 spool / 失败退避重试
  │    └─ 服务重启后扫描 spool 续传(sent 状态跳过)
  ├─ RetentionCleaner: 每日删除 retention-days 前的留存图
@@ -81,9 +82,13 @@ SDK 全局只有一个 V31 回调。`NET_DVR_ALARMER.lUserID` 是登录句柄,�
 
 初始化后调用 `NET_DVR_SetSDKLocalCfg(17, byAlarmJsonPictureSeparate=1)`,回调收到 `COMM_ISAPI_ALARM (0x6009)`,`NET_DVR_ALARM_ISAPI_INFO` 结构:JSON 判图数据 + N 张图片(每张含原始文件名)。
 
-### 4.4 一次报警拆分为 N 次 HTTP 请求
+### 4.4 发送前业务改造点(OutboundTransformer)
 
-业务接口一次收一张图(`@RequestParam("image")`),故一次报警按图片数拆成 N 个独立 SendUnit,每个单元独立 spool、独立重试,避免部分成功导致整体重发。
+管线在 `process()` 中调用 `OutboundTransformer.transform(event)` 生成 SendUnit 列表,之后统一走 spool 落盘、入队、发送与重试。
+
+- 默认实现 `DefaultOutboundTransformer`:按图片数拆成 N 个独立单元(业务接口一次收一张图),每个单元独立 spool、独立重试,避免部分成功导致整体重发。
+- 业务实现 `BizOutboundTransformer`(@Primary 覆盖):当前规则为"一个包裹一张图,取第一张";判图 JSON 经 `AlarmJudgmentService` 解析为 `AlarmJudgment` 出参类(是否有违禁品/违禁品类型/置信度),出参类字段名与值自动填入 `SendUnit.extraFields`(随 multipart 原样提交);JSON 解析失败时图片照发、不带业务字段。
+- 返回空列表表示该报警不发送;本地留存(images/)始终保存原始图片与原始 JSON,不受业务改造影响。
 
 ### 4.5 断线重连
 
@@ -119,6 +124,7 @@ POST {target-url}
 Content-Type: multipart/form-data
   image     = 图片二进制(filename 保留规范化名称)
   lineId    = 设备配置的 line-id(必传)
+  ...       = SendUnit.extraFields 业务字段(由 OutboundTransformer 业务实现填充,原样提交)
   eventType = 预留,当前不传
 ```
 

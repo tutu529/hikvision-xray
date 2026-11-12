@@ -3,6 +3,8 @@ package com.kylin.hikvisionxray.queue;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -33,6 +35,9 @@ public class SendUnit {
     @JsonIgnore
     private byte[] imageData;
 
+    /** 随 multipart 一起提交的额外表单字段(业务改造数据,spool 元数据一并序列化) */
+    private Map<String, String> extraFields = new LinkedHashMap<>();
+
     public String getUnitId() { return unitId; }
     public void setUnitId(String unitId) { this.unitId = unitId; }
     public String getDeviceId() { return deviceId; }
@@ -57,6 +62,8 @@ public class SendUnit {
     public void setSent(boolean sent) { this.sent = sent; }
     public byte[] getImageData() { return imageData; }
     public void setImageData(byte[] imageData) { this.imageData = imageData; }
+    public Map<String, String> getExtraFields() { return extraFields; }
+    public void setExtraFields(Map<String, String> extraFields) { this.extraFields = extraFields; }
 
     public static SendUnit create(String deviceId, String lineId, String deviceName, String deviceIp,
                                   LocalDateTime eventTime, String imageFilename, byte[] imageData) {

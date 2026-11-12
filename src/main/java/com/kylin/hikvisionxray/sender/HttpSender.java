@@ -25,6 +25,7 @@ import java.time.Duration;
  *   POST {target-url}
  *   image     = 图片二进制(字段名 image,文件名保留)
  *   lineId    = 设备配置的 line-id
+ *   ...       = SendUnit.extraFields 业务字段(由 OutboundTransformer 业务实现填充)
  *   eventType = 预留,当前不传
  */
 @Component
@@ -58,6 +59,10 @@ public class HttpSender {
         };
         form.add("image", image);
         form.add("lineId", unit.getLineId());
+        // 业务改造附带字段(OutboundTransformer 填充,原样提交)
+        if (unit.getExtraFields() != null) {
+            unit.getExtraFields().forEach(form::add);
+        }
         // eventType 预留,当前不传
 
         HttpEntity<MultiValueMap<String, Object>> request = new HttpEntity<>(form, headers);

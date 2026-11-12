@@ -8,7 +8,7 @@ server:
 bridge:
   http:
     # 业务应用接收接口(已存在)
-    target-url: http://199.199.199.100:4017/file/api/receive-file
+    target-url: http://199.199.199.100:4017/file/api/receive-judge
     # HTTP 超时(毫秒),单张图片较大时适当调大
     timeout-ms: 5000
     # 发送失败后快速重试次数(超过后转入慢重试,间隔 retry-backoff-ms)
